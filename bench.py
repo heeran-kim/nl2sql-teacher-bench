@@ -60,6 +60,24 @@ def load_dataset(path: Path) -> list[dict]:
     return records
 
 
+def chat_with_retry(
+    model: str, prompt: str, host: str, timeout: int, think: bool | None, num_ctx: int, retries: int, retry_delay: int
+) -> str:
+    """Call chat(), retrying on failure -- most failures seen in practice are
+    infrastructure hiccups (stale VRAM, a dropped connection), not the model.
+    """
+    last_error = None
+    for attempt in range(retries + 1):
+        try:
+            return chat(model, prompt, host=host, timeout=timeout, think=think, num_ctx=num_ctx)
+        except Exception as e:
+            last_error = e
+            if attempt < retries:
+                print(f"    (attempt {attempt + 1}/{retries + 1} failed: {e} -- retrying in {retry_delay}s)")
+                time.sleep(retry_delay)
+    raise last_error
+
+
 def run_model(
     model: str,
     dataset: list[dict],
@@ -69,18 +87,20 @@ def run_model(
     conn=None,
     think: bool | None = None,
     num_ctx: int = 16384,
+    retries: int = 2,
+    retry_delay: int = 10,
 ) -> list[dict]:
     results = []
     for i, example in enumerate(dataset, start=1):
         start = time.time()
         try:
-            raw = chat(model, example["prompt"], host=host, timeout=timeout, think=think, num_ctx=num_ctx)
+            raw = chat_with_retry(model, example["prompt"], host, timeout, think, num_ctx, retries, retry_delay)
         except Exception as e:
             elapsed = time.time() - start
             print(f"  [{i}/{len(dataset)}] ERROR: {e} ({elapsed:.1f}s) -- counted as a miss, continuing")
             failed = {
                 "generated": "",
-                "raw": "",
+                "raw": f"<ERROR: {e}>",
                 "seconds": elapsed,
                 "valid": False,
                 "table_match": False,
@@ -121,6 +141,18 @@ def escape_cell(text: str, limit: int | None = None) -> str:
     if limit is not None and len(text) > limit:
         text = text[: limit - 1] + "…"
     return text
+
+
+def write_reports(dataset: list[dict], all_results: dict[str, list[dict]], output: Path, has_execution: bool) -> None:
+    """Write the markdown report plus a raw-output JSON sidecar for
+    debugging models whose output extract_sql() can't parse cleanly.
+    """
+    output.write_text(build_report(dataset, all_results, has_execution), encoding="utf-8")
+    raw_path = output.with_suffix(".raw.json")
+    raw_path.write_text(
+        json.dumps({model: [r.get("raw", "") for r in results] for model, results in all_results.items()}, indent=2),
+        encoding="utf-8",
+    )
 
 
 def build_report(dataset: list[dict], all_results: dict[str, list[dict]], has_execution: bool) -> str:
@@ -226,6 +258,13 @@ def main() -> int:
         "reason their way to a correct answer. Useful for quick iteration while debugging a "
         "test set, not for a real comparison.",
     )
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=2,
+        help="Retries on a failed request before counting it as a permanent miss.",
+    )
+    parser.add_argument("--retry-delay", type=int, default=10, help="Seconds to wait between retries")
     parser.add_argument("--output", type=Path, default=Path("results.md"))
     parser.add_argument(
         "--schema",
@@ -282,6 +321,8 @@ def main() -> int:
                 conn=conn,
                 think=(False if args.no_think else None),
                 num_ctx=args.num_ctx,
+                retries=args.retries,
+                retry_delay=args.retry_delay,
             )
         except Exception as e:
             print(f"ERROR: {model} failed entirely ({e}) -- excluding it and continuing with the rest\n")
@@ -289,13 +330,11 @@ def main() -> int:
         print()
 
         # Save after each model to preserve results if a later model fails.
-        report = build_report(dataset, all_results, has_execution=conn is not None)
-        args.output.write_text(report, encoding="utf-8")
+        write_reports(dataset, all_results, args.output, has_execution=conn is not None)
         print(f"({len(all_results)}/{len(args.models)} models done -- report updated at {args.output})\n")
 
-    report = build_report(dataset, all_results, has_execution=conn is not None)
-    args.output.write_text(report, encoding="utf-8")
-    print(f"Report written to {args.output}\n")
+    write_reports(dataset, all_results, args.output, has_execution=conn is not None)
+    print(f"Report written to {args.output} (raw model outputs in {args.output.with_suffix('.raw.json')})\n")
 
     print("Summary:")
     for model, results in all_results.items():

@@ -6,6 +6,7 @@ venv/
 # Generated reports
 results.md
 results-*.md
+*.raw.json
 
 # Any DB file a run persists to disk (execution mode normally uses :memory:)
 *.sqlite
