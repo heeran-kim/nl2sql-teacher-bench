@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Generated reports
+results.md
+results-*.md
+
+# Any DB file a run persists to disk (execution mode normally uses :memory:)
+*.sqlite
+*.sqlite3
+*.db
+
+# Everything under data/ is ignored by default -- this is where real/private
+# test data goes (e.g. your own schema + examples). Only the bundled demo
+# files are tracked, explicitly allow-listed below.
+data/*
+!data/example.jsonl
+!data/example_schema.sql
