@@ -34,13 +34,17 @@ def _run_select(conn: sqlite3.Connection, sql: str, source_dialect: str) -> list
     return cursor.fetchall()
 
 
+def _normalize_row(row: tuple) -> tuple:
+    """Sort a row's values so column order doesn't affect matching."""
+    return tuple(sorted(row, key=lambda v: (v is None, type(v).__name__, str(v))))
+
+
 def compute_execution_match(
     conn: sqlite3.Connection, reference_sql: str, generated_sql: str, source_dialect: str = ""
 ) -> dict:
-    """Run both queries against `conn` and compare result sets as multisets
-    of rows (order-independent, duplicates counted). Either query failing to
-    parse or execute counts as not executable and not a match -- it does not
-    raise, so one bad example doesn't stop a benchmark run.
+    """Run both queries and compare results as order-independent row multisets.
+
+    Never raises -- a failing query just counts as not executable/matching.
     """
     ref_rows = gen_rows = None
     ref_error = gen_error = None
@@ -56,7 +60,7 @@ def compute_execution_match(
     match = (
         ref_rows is not None
         and gen_rows is not None
-        and Counter(map(tuple, ref_rows)) == Counter(map(tuple, gen_rows))
+        and Counter(map(_normalize_row, ref_rows)) == Counter(map(_normalize_row, gen_rows))
     )
 
     return {
