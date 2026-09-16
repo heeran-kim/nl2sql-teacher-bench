@@ -215,7 +215,7 @@ NL2SQL 专用模型两类。以下 pull 命令均基于 Ollama;对于没有官�
 | --- | --- | --- |
 | Qwen3-14B | 148 亿,稠密(dense) | `ollama pull qwen3:14b` |
 | Qwen3-30B-A3B | 总参数 300 亿 / 激活 30 亿(MoE) | `ollama pull qwen3:30b-a3b` |
-| Qwen3-Coder-30B-A3B | 300 亿 / 激活 33 亿(MoE) | `ollama pull qwen3-coder:30b-a3b` |
+| Qwen3-Coder-30B-A3B | 300 亿 / 激活 33 亿(MoE) | `ollama pull qwen3-coder:30b-a3b-q4_K_M` |
 | Granite 4.0 H-Small | 320 亿 / 激活 90 亿(MoE) | `ollama pull ibm/granite4:small-h` |
 
 ### NL2SQL 专用模型

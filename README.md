@@ -231,7 +231,7 @@ exact name (community quantizers don't always use the same tag scheme).
 | --- | --- | --- |
 | Qwen3-14B | 14.8B dense | `ollama pull qwen3:14b` |
 | Qwen3-30B-A3B | 30B total / 3B active (MoE) | `ollama pull qwen3:30b-a3b` |
-| Qwen3-Coder-30B-A3B | 30B / 3.3B active (MoE) | `ollama pull qwen3-coder:30b-a3b` |
+| Qwen3-Coder-30B-A3B | 30B / 3.3B active (MoE) | `ollama pull qwen3-coder:30b-a3b-q4_K_M` |
 | Granite 4.0 H-Small | 32B / 9B active (MoE) | `ollama pull ibm/granite4:small-h` |
 
 ### NL2SQL-specialized

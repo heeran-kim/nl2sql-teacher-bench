@@ -227,7 +227,7 @@ GGUF 저장소든 `ollama pull hf.co/<repo>:<quant>`로 직접 pull할 수
 | --- | --- | --- |
 | Qwen3-14B | 14.8B dense | `ollama pull qwen3:14b` |
 | Qwen3-30B-A3B | 30B 총 / 3B 활성 (MoE) | `ollama pull qwen3:30b-a3b` |
-| Qwen3-Coder-30B-A3B | 30B / 3.3B 활성 (MoE) | `ollama pull qwen3-coder:30b-a3b` |
+| Qwen3-Coder-30B-A3B | 30B / 3.3B 활성 (MoE) | `ollama pull qwen3-coder:30b-a3b-q4_K_M` |
 | Granite 4.0 H-Small | 32B / 9B 활성 (MoE) | `ollama pull ibm/granite4:small-h` |
 
 ### NL2SQL 특화
