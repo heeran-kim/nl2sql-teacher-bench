@@ -61,12 +61,45 @@ def load_dataset(path: Path) -> list[dict]:
 
 
 def run_model(
-    model: str, dataset: list[dict], host: str, dialect: str, timeout: int, conn=None, think: bool | None = None
+    model: str,
+    dataset: list[dict],
+    host: str,
+    dialect: str,
+    timeout: int,
+    conn=None,
+    think: bool | None = None,
+    num_ctx: int = 16384,
 ) -> list[dict]:
     results = []
     for i, example in enumerate(dataset, start=1):
         start = time.time()
-        raw = chat(model, example["prompt"], host=host, timeout=timeout, think=think)
+        try:
+            raw = chat(model, example["prompt"], host=host, timeout=timeout, think=think, num_ctx=num_ctx)
+        except Exception as e:
+            elapsed = time.time() - start
+            print(f"  [{i}/{len(dataset)}] ERROR: {e} ({elapsed:.1f}s) -- counted as a miss, continuing")
+            failed = {
+                "generated": "",
+                "raw": "",
+                "seconds": elapsed,
+                "valid": False,
+                "table_match": False,
+                "col_overlap": 0.0,
+                "exact_match": False,
+                "error": str(e),
+            }
+            if conn is not None:
+                failed.update(
+                    {
+                        "reference_executable": False,
+                        "generated_executable": False,
+                        "execution_match": False,
+                        "reference_error": None,
+                        "generated_error": str(e),
+                    }
+                )
+            results.append(failed)
+            continue
         elapsed = time.time() - start
         generated = extract_sql(raw)
         scored = compute_metrics(example["reference_sql"], generated, dialect=dialect)
@@ -178,6 +211,13 @@ def main() -> int:
         "prompts -- raise this rather than reaching for --no-think if a run times out.",
     )
     parser.add_argument(
+        "--num-ctx",
+        type=int,
+        default=16384,
+        help="Context window size passed to Ollama. Defaults to 16384 to prevent "
+        "reasoning tokens from exhausting the context window.",
+    )
+    parser.add_argument(
         "--no-think",
         action="store_true",
         help="Disable the internal thinking step on reasoning-capable models (e.g. Qwen3) for "
@@ -232,16 +272,26 @@ def main() -> int:
     all_results: dict[str, list[dict]] = {}
     for model in args.models:
         print(f"--- {model} ---")
-        all_results[model] = run_model(
-            model,
-            dataset,
-            args.ollama_host,
-            args.dialect,
-            args.timeout,
-            conn=conn,
-            think=(False if args.no_think else None),
-        )
+        try:
+            all_results[model] = run_model(
+                model,
+                dataset,
+                args.ollama_host,
+                args.dialect,
+                args.timeout,
+                conn=conn,
+                think=(False if args.no_think else None),
+                num_ctx=args.num_ctx,
+            )
+        except Exception as e:
+            print(f"ERROR: {model} failed entirely ({e}) -- excluding it and continuing with the rest\n")
+            continue
         print()
+
+        # Save after each model to preserve results if a later model fails.
+        report = build_report(dataset, all_results, has_execution=conn is not None)
+        args.output.write_text(report, encoding="utf-8")
+        print(f"({len(all_results)}/{len(args.models)} models done -- report updated at {args.output})\n")
 
     report = build_report(dataset, all_results, has_execution=conn is not None)
     args.output.write_text(report, encoding="utf-8")

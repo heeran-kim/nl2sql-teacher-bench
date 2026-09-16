@@ -8,26 +8,23 @@ import urllib.request
 
 
 def chat(
-    model: str, prompt: str, host: str = "http://localhost:11434", timeout: int = 600, think: bool | None = None
+    model: str,
+    prompt: str,
+    host: str = "http://localhost:11434",
+    timeout: int = 600,
+    think: bool | None = None,
+    num_ctx: int = 16384,
 ) -> str:
-    """Send one user message to `model` via Ollama's /api/chat and return its reply text.
+    """Send one user message to `model` via Ollama's /api/chat and return its reply.
 
-    `think` controls whether reasoning-capable models (e.g. Qwen3) use their
-    internal deliberation step before answering. Default `None` sends no
-    override at all -- Ollama's own default for the model -- since for a
-    teacher-selection benchmark, quality matters far more than speed
-    (the whole point of the teacher role is that it runs once, offline) and
-    disabling thinking by default would unfairly cap models specifically
-    designed to reason their way to a correct answer. It's also
-    dramatically slower (roughly 40s vs. 1s on a trivial prompt, in one
-    observed case) and occasionally slower still on complex prompts, which
-    is a --timeout tuning problem, not a reason to force it off by default.
+    `think` controls reasoning-capable models' internal deliberation.
+    `num_ctx` defaults to 16384 to accommodate prompts and reasoning output.
     """
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "stream": False,
-        "options": {"temperature": 0},
+        "options": {"temperature": 0, "num_ctx": num_ctx},
     }
     if think is not None:
         payload["think"] = think
