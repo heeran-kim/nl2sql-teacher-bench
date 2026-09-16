@@ -197,22 +197,11 @@ def _random_value(col_type: str, rng: random.Random, allowed_values: list | None
     return "".join(rng.choices(string.ascii_lowercase, k=8))
 
 
-def build_database(schema_sql: str, source_dialect: str, seed_rows: int = 20, seed: int = 0) -> sqlite3.Connection:
-    """Create an in-memory SQLite database from `schema_sql` and fill each
-    table with `seed_rows` rows of random data, respecting declared primary
-    keys (sequential, unique) and foreign keys (sampled from the referenced
-    table's already-generated keys, so joins actually return matching rows).
-
-    Columns declared as `ENUM(...)` or with a `CHECK (col IN (...))`
-    constraint are sampled from that declared value set instead of random
-    noise, so e.g. `WHERE status = 'COMPLETED'` has a real chance of
-    matching. Everything else is type-appropriate random noise with no
-    awareness of your data's actual distribution -- for anything beyond
-    that (a specific known ID, a realistic date range), seed the database
-    yourself and call `execution.compute_execution_match()` directly with
-    your own connection.
+def create_tables(schema_sql: str, source_dialect: str) -> tuple[sqlite3.Connection, list[TableSpec]]:
+    """Create an in-memory SQLite database from `schema_sql`, tables only --
+    no data. Used directly by callers who want to seed their own rows (see
+    `--seed-script` in bench.py) instead of `build_database`'s random fill.
     """
-    rng = random.Random(seed)
     tables = parse_schema(schema_sql, source_dialect)
     if not tables:
         raise ValueError("No (parseable) CREATE TABLE statements found in schema")
@@ -225,9 +214,28 @@ def build_database(schema_sql: str, source_dialect: str, seed_rows: int = 20, se
             created.append(table)
         except sqlite3.Error as e:
             print(f"Warning: could not create table '{table.name}' in SQLite ({e}) -- skipping", file=sys.stderr)
-    tables = created
-    if not tables:
+    if not created:
         raise ValueError("No CREATE TABLE statement could be translated to SQLite")
+    conn.commit()
+    return conn, created
+
+
+def build_database(schema_sql: str, source_dialect: str, seed_rows: int = 20, seed: int = 0) -> sqlite3.Connection:
+    """Create an in-memory SQLite database from `schema_sql` and fill each
+    table with `seed_rows` rows of random data, respecting declared primary
+    keys (sequential, unique) and foreign keys (sampled from the referenced
+    table's already-generated keys, so joins actually return matching rows).
+
+    Columns declared as `ENUM(...)` or with a `CHECK (col IN (...))`
+    constraint are sampled from that declared value set instead of random
+    noise, so e.g. `WHERE status = 'COMPLETED'` has a real chance of
+    matching. Everything else is type-appropriate random noise with no
+    awareness of your data's actual distribution -- for anything beyond
+    that (a specific known ID, a realistic date range), use `--seed-script`
+    (see bench.py) or call `create_tables()` and seed it yourself.
+    """
+    rng = random.Random(seed)
+    conn, tables = create_tables(schema_sql, source_dialect)
 
     pk_pools: dict[str, list] = {}
     for table in tables:

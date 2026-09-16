@@ -12,15 +12,35 @@ to add a new candidate model.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import sys
 import time
 from pathlib import Path
 
-from db_builder import build_database
+from db_builder import build_database, create_tables
 from execution import aggregate_execution, compute_execution_match
 from metrics import aggregate, compute_metrics, extract_sql
 from ollama_client import chat
+
+
+def run_seed_script(path: Path, conn) -> None:
+    """Load `path` as a module and call its `seed(conn)` function.
+
+    This is the supported way to seed the execution database with your own
+    domain-specific rows instead of random data -- e.g. known IDs your test
+    questions reference, or realistic enum-free string values. See
+    data/seed_aceso.py in this repo for a worked example.
+    """
+    spec = importlib.util.spec_from_file_location(path.stem, path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"Could not load '{path}' as a Python module")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if not hasattr(module, "seed"):
+        raise ValueError(f"{path} must define a seed(conn) function")
+    module.seed(conn)
+    conn.commit()
 
 
 def load_dataset(path: Path) -> list[dict]:
@@ -164,16 +184,33 @@ def main() -> int:
         "--seed-rows", type=int, default=20, help="Rows of random data to generate per table (with --schema)"
     )
     parser.add_argument("--seed", type=int, default=0, help="Random seed for synthetic data (with --schema)")
+    parser.add_argument(
+        "--seed-script",
+        type=Path,
+        default=None,
+        help="Path to a Python file defining seed(conn) to populate the execution database "
+        "yourself instead of --schema's random fill (requires --schema, for table creation). "
+        "Use this when your test questions reference specific known values -- see "
+        "data/seed_aceso.py for a worked example.",
+    )
     args = parser.parse_args()
 
     dataset = load_dataset(args.data)
     print(f"Loaded {len(dataset)} examples from {args.data}\n")
 
+    if args.seed_script is not None and args.schema is None:
+        parser.error("--seed-script requires --schema (used to create the tables)")
+
     conn = None
     if args.schema is not None:
         schema_sql = args.schema.read_text(encoding="utf-8")
-        conn = build_database(schema_sql, args.dialect, seed_rows=args.seed_rows, seed=args.seed)
-        print(f"Seeded an in-memory SQLite database from {args.schema} ({args.seed_rows} rows/table)\n")
+        if args.seed_script is not None:
+            conn, _tables = create_tables(schema_sql, args.dialect)
+            run_seed_script(args.seed_script, conn)
+            print(f"Seeded an in-memory SQLite database from {args.schema} using {args.seed_script}\n")
+        else:
+            conn = build_database(schema_sql, args.dialect, seed_rows=args.seed_rows, seed=args.seed)
+            print(f"Seeded an in-memory SQLite database from {args.schema} ({args.seed_rows} random rows/table)\n")
         for example in dataset:
             example["prompt"] = example["prompt"].replace("{{schema}}", schema_sql)
 
