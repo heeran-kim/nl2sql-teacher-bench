@@ -125,6 +125,30 @@ python bench.py \
   --dialect postgres
 ```
 
+### Custom seed data (`--seed-script`)
+
+Random data breaks down once a question filters on a specific literal (a
+known ID, an order reference) -- both queries return an empty result and
+trivially "match." `--seed-script path/to/script.py` replaces the random
+fill with your own: `--schema` still creates the tables, but `bench.py`
+calls your script's `seed(conn)` function instead of generating random
+rows.
+
+```python
+# my_seed.py
+def seed(conn):
+    conn.execute("INSERT INTO customers (id, name) VALUES (?, ?)", (42, "Ada Lovelace"))
+    conn.execute("INSERT INTO orders (id, customer_id, status) VALUES (?, ?, ?)", (1, 42, "completed"))
+```
+
+```bash
+python bench.py --models qwen3:14b --data your_testset.jsonl --schema schema.sql --seed-script my_seed.py
+```
+
+Add decoys where it matters (a newer row that shouldn't be picked) so a
+wrong query can actually produce a wrong result instead of an accidental
+empty-set match.
+
 Use `--dialect` to match whatever SQL your schema and reference queries
 are written in (any [sqlglot dialect name](https://sqlglot.com/sqlglot/dialects/dialect.html) --
 e.g. `mysql`, `postgres`, `sqlite`, `snowflake`, `bigquery`; default is
@@ -173,14 +197,14 @@ picture.
   `WHERE status = 'COMPLETED'` has a real chance of matching. Without a
   declared value set, that same filter will usually match zero rows
   against random text, so both queries return an empty set -- which
-  trivially "matches" without actually exercising the filter. If your
-  schema doesn't declare its valid values, either add a `CHECK` constraint
-  to your local copy of the schema (harmless -- it's only used to build
-  the synthetic test database, not your real one), write test questions
-  whose filters key off generated ranges instead (IDs 1..N, dates within
-  the last ~2 years), or seed the database yourself and call
-  `execution.compute_execution_match()` directly with your own connection
-  for full control.
+  trivially "matches" without actually exercising the filter. The same
+  problem shows up for any filter on a specific literal (a known ID, a
+  date range) that random generation won't happen to produce. If your
+  schema doesn't declare its valid values, add a `CHECK` constraint to
+  your local copy of the schema (harmless -- it's only used to build the
+  synthetic test database, not your real one); for filters on specific
+  literals, use `--seed-script` (below) to seed exactly the rows your
+  questions need instead of random ones.
 - **SELECT-only.** Non-SELECT statements aren't executed against the seeded
   database (by design, so one bad model output can't mutate data that other
   examples in the same run depend on).

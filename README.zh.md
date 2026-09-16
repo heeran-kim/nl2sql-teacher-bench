@@ -120,6 +120,28 @@ python bench.py \
   --dialect postgres
 ```
 
+### 使用自定义填充数据(`--seed-script`)
+
+一旦问题过滤的是某个特定字面量(已知 ID、订单编号),随机数据就会失效
+-- 两个查询都返回空结果,于是被判定为"匹配"。`--seed-script
+path/to/script.py` 会用你自己的逻辑替换随机填充:`--schema` 仍然用来
+创建表,但 `bench.py` 会调用你脚本中的 `seed(conn)` 函数,而不是生成
+随机行。
+
+```python
+# my_seed.py
+def seed(conn):
+    conn.execute("INSERT INTO customers (id, name) VALUES (?, ?)", (42, "Ada Lovelace"))
+    conn.execute("INSERT INTO orders (id, customer_id, status) VALUES (?, ?, ?)", (1, 42, "completed"))
+```
+
+```bash
+python bench.py --models qwen3:14b --data your_testset.jsonl --schema schema.sql --seed-script my_seed.py
+```
+
+在关键之处加入"陷阱"数据(比如一条不应该被选中的更新记录),这样一个
+错误的查询才能真正产生错误的结果,而不是碰巧匹配上一个空结果集。
+
 用 `--dialect` 匹配你的 schema 和参考查询所使用的 SQL 方言(任意
 [sqlglot 方言名称](https://sqlglot.com/sqlglot/dialects/dialect.html) --
 例如 `mysql`、`postgres`、`sqlite`、`snowflake`、`bigquery`;默认使用
@@ -162,12 +184,12 @@ sqlglot 的通用方言)。这只影响解析/评分/DDL 转换,不影响发送�
   `WHERE status = 'COMPLETED'` 这样的过滤条件是有可能真正匹配上的。
   如果没有声明取值集合,同样的过滤条件在随机文本上通常匹配不到任何行,
   于是参考查询和生成查询都返回空结果集 -- 这种情况下"匹配"是平凡的,
-  并没有真正测试到那个过滤条件。如果你的 schema 没有声明有效取值,
-  可以给你本地的 schema 副本加上 `CHECK` 约束(这只用于构建合成测试
-  数据库,不会影响你的真实数据库,是安全的),或者让测试问题的过滤条件
-  落在生成数据的取值范围内(ID 为 1..N,日期在最近约两年内),或者自己
-  填充数据库,然后直接用你自己的 connection 调用
-  `execution.compute_execution_match()` 来获得完全控制权。
+  并没有真正测试到那个过滤条件。任何过滤条件用到随机生成不太可能碰上的
+  特定字面量(已知 ID、日期范围)都会有同样的问题。如果你的 schema 没有
+  声明有效取值,给你本地的 schema 副本加上 `CHECK` 约束即可(这只用于
+  构建合成测试数据库,不会影响你的真实数据库,是安全的);如果问题出在
+  对特定字面量的过滤上,请使用下文的 `--seed-script`,填充问题真正
+  需要的那些行,而不是随机数据。
 - **仅支持 SELECT。** 非 SELECT 语句不会在已填充数据的数据库上执行
   (这是有意设计的 -- 避免某一次糟糕的模型输出污染同一次运行中其他
   样例所依赖的数据)。

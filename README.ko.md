@@ -125,6 +125,30 @@ python bench.py \
   --dialect postgres
 ```
 
+### 직접 시딩한 데이터 사용하기 (`--seed-script`)
+
+질문이 특정 리터럴(알려진 ID, 주문 참조 번호)을 필터링하는 순간 무작위
+데이터는 무너집니다 -- 두 쿼리 다 빈 결과를 반환하고 그냥 "매칭"됩니다.
+`--seed-script path/to/script.py`는 무작위 채우기를 여러분 자신의
+로직으로 대체합니다: `--schema`는 여전히 테이블을 만드는 데 쓰이지만,
+`bench.py`는 무작위 행 대신 여러분 스크립트의 `seed(conn)` 함수를
+호출합니다.
+
+```python
+# my_seed.py
+def seed(conn):
+    conn.execute("INSERT INTO customers (id, name) VALUES (?, ?)", (42, "Ada Lovelace"))
+    conn.execute("INSERT INTO orders (id, customer_id, status) VALUES (?, ?, ?)", (1, 42, "completed"))
+```
+
+```bash
+python bench.py --models qwen3:14b --data your_testset.jsonl --schema schema.sql --seed-script my_seed.py
+```
+
+중요한 경우에는 함정(decoy) 데이터도 넣으세요 (선택되면 안 되는 더 최근
+행 등). 그래야 틀린 쿼리가 빈 결과에 우연히 매칭되는 대신 실제로 틀린
+결과를 낼 수 있습니다.
+
 `--dialect`는 스키마와 reference 쿼리가 작성된 SQL 방언과 맞춰 주세요
 (임의의 [sqlglot dialect 이름](https://sqlglot.com/sqlglot/dialects/dialect.html) --
 예: `mysql`, `postgres`, `sqlite`, `snowflake`, `bigquery`; 기본값은
@@ -169,14 +193,13 @@ sqlglot의 범용 방언입니다). 이건 파싱/채점/DDL 변환에만 영향
   'COMPLETED'` 같은 필터가 실제로 매칭될 가능성이 있습니다. 값 집합이
   선언되어 있지 않다면, 같은 필터는 무작위 텍스트에 대해 보통 0개 행과
   매칭되어 reference와 생성된 쿼리 둘 다 빈 결과를 반환하고 -- 실제로는
-  그 필터를 전혀 검증하지 않은 채로 "매칭"됩니다. 스키마에 유효한 값이
-  선언되어 있지 않다면, 여러분이 가진 스키마 사본에 `CHECK` 제약을
-  추가하거나(합성 테스트 데이터베이스를 만드는 데만 쓰이므로 실제
-  운영 DB에는 영향 없이 안전합니다), 생성되는 값 범위(ID 1..N, 최근
-  2년 내의 날짜)에 걸리는 조건으로 테스트 질문을 만들거나, 직접
-  데이터베이스를 시딩한 뒤 자신의 connection으로
-  `execution.compute_execution_match()`를 직접 호출해 완전히 제어할 수
-  있습니다.
+  그 필터를 전혀 검증하지 않은 채로 "매칭"됩니다. 무작위 생성으로는
+  나오지 않을 특정 리터럴(알려진 ID, 날짜 범위)에 대한 필터도 같은
+  문제를 일으킵니다. 스키마에 유효한 값이 선언되어 있지 않다면 여러분의
+  스키마 사본에 `CHECK` 제약을 추가하세요(합성 테스트 데이터베이스를
+  만드는 데만 쓰이므로 실제 운영 DB에는 영향 없이 안전합니다); 특정
+  리터럴 값에 대한 필터가 문제라면, 무작위 행 대신 질문에 필요한 정확한
+  행을 시딩하도록 아래의 `--seed-script`를 사용하세요.
 - **SELECT만 지원합니다.** SELECT가 아닌 문장은 시드 데이터베이스에 대해
   실행되지 않습니다 (의도적인 설계입니다 -- 잘못된 모델 출력 하나가
   같은 실행 중 다른 예제들이 의존하는 데이터를 바꿔버리는 걸 막기
