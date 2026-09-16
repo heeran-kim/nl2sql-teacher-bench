@@ -61,12 +61,12 @@ def load_dataset(path: Path) -> list[dict]:
 
 
 def run_model(
-    model: str, dataset: list[dict], host: str, dialect: str, timeout: int, conn=None
+    model: str, dataset: list[dict], host: str, dialect: str, timeout: int, conn=None, think: bool | None = None
 ) -> list[dict]:
     results = []
     for i, example in enumerate(dataset, start=1):
         start = time.time()
-        raw = chat(model, example["prompt"], host=host, timeout=timeout)
+        raw = chat(model, example["prompt"], host=host, timeout=timeout, think=think)
         elapsed = time.time() - start
         generated = extract_sql(raw)
         scored = compute_metrics(example["reference_sql"], generated, dialect=dialect)
@@ -170,7 +170,22 @@ def main() -> int:
         "snowflake, bigquery) -- match this to your reference queries' dialect. "
         "Default is sqlglot's generic dialect.",
     )
-    parser.add_argument("--timeout", type=int, default=300, help="Per-request timeout, in seconds")
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=600,
+        help="Per-request timeout, in seconds. Reasoning models can take a while on complex "
+        "prompts -- raise this rather than reaching for --no-think if a run times out.",
+    )
+    parser.add_argument(
+        "--no-think",
+        action="store_true",
+        help="Disable the internal thinking step on reasoning-capable models (e.g. Qwen3) for "
+        "faster, cheaper responses. Off by default -- quality matters more than speed for a "
+        "teacher (it only runs once, offline), and this would unfairly cap models built to "
+        "reason their way to a correct answer. Useful for quick iteration while debugging a "
+        "test set, not for a real comparison.",
+    )
     parser.add_argument("--output", type=Path, default=Path("results.md"))
     parser.add_argument(
         "--schema",
@@ -217,7 +232,15 @@ def main() -> int:
     all_results: dict[str, list[dict]] = {}
     for model in args.models:
         print(f"--- {model} ---")
-        all_results[model] = run_model(model, dataset, args.ollama_host, args.dialect, args.timeout, conn=conn)
+        all_results[model] = run_model(
+            model,
+            dataset,
+            args.ollama_host,
+            args.dialect,
+            args.timeout,
+            conn=conn,
+            think=(False if args.no_think else None),
+        )
         print()
 
     report = build_report(dataset, all_results, has_execution=conn is not None)
