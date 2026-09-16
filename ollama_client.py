@@ -45,3 +45,21 @@ def chat(
     if "message" not in result:
         raise RuntimeError(f"Unexpected response from Ollama for model '{model}': {result}")
     return result["message"]["content"]
+
+
+def unload_model(model: str, host: str = "http://localhost:11434") -> None:
+    """Tell Ollama to unload `model` now instead of waiting out its default
+    5-minute keep_alive -- otherwise it stays resident while the next model
+    loads, and two models resident at once can exceed available memory.
+    """
+    request = urllib.request.Request(
+        f"{host}/api/generate",
+        data=json.dumps({"model": model, "keep_alive": 0}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            response.read()
+    except urllib.error.URLError:
+        pass

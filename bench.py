@@ -21,7 +21,7 @@ from pathlib import Path
 from db_builder import build_database, create_tables
 from execution import aggregate_execution, compute_execution_match
 from metrics import aggregate, compute_metrics, extract_sql
-from ollama_client import chat
+from ollama_client import chat, unload_model
 
 
 def run_seed_script(path: Path, conn) -> None:
@@ -327,6 +327,8 @@ def main() -> int:
         except Exception as e:
             print(f"ERROR: {model} failed entirely ({e}) -- excluding it and continuing with the rest\n")
             continue
+        finally:
+            unload_model(model, args.ollama_host)
         print()
 
         # Save after each model to preserve results if a later model fails.
