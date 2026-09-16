@@ -136,10 +136,10 @@ def run_model(
     return results
 
 
-def escape_cell(text: str, limit: int | None = None) -> str:
+def escape_cell(text: str, limit: int | None = None, from_end: bool = False) -> str:
     text = text.replace("\n", " ").replace("|", "\\|").strip()
     if limit is not None and len(text) > limit:
-        text = text[: limit - 1] + "…"
+        text = ("…" + text[-(limit - 1) :]) if from_end else (text[: limit - 1] + "…")
     return text
 
 
@@ -209,7 +209,7 @@ def build_report(dataset: list[dict], all_results: dict[str, list[dict]], has_ex
     for i, example in enumerate(dataset):
         cells = [
             str(i + 1),
-            escape_cell(example["prompt"], limit=80),
+            escape_cell(example["prompt"], limit=150, from_end=True),
             f"`{escape_cell(example['reference_sql'])}`",
         ]
         for model in models:
