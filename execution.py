@@ -21,7 +21,7 @@ from sqlglot import exp
 def _to_select_ast(sql: str, source_dialect: str) -> exp.Expression:
     parsed = sqlglot.parse_one(sql, read=source_dialect or None)
     node = parsed.this if isinstance(parsed, exp.With) else parsed
-    if not isinstance(node, (exp.Select, exp.Union)):
+    if not isinstance(node, (exp.Select, exp.SetOperation)):
         raise ValueError("only SELECT queries can be executed against the seeded database")
     return parsed
 
