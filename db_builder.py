@@ -60,9 +60,14 @@ def _extract_create_table_asts(schema_sql: str, source_dialect: str) -> list[exp
 class TableSpec:
     name: str
     columns: list[tuple[str, str]] = field(default_factory=list)  # (name, type)
-    primary_key: str | None = None
+    primary_key_cols: list[str] = field(default_factory=list)  # all PK columns, in declared order
     foreign_keys: dict[str, tuple[str, str]] = field(default_factory=dict)  # local col -> (ref table, ref col)
     allowed_values: dict[str, list] = field(default_factory=dict)  # col -> declared value set (ENUM / CHECK IN)
+
+    @property
+    def primary_key(self) -> str | None:
+        """First PK column -- the only one random seeding auto-fills uniquely."""
+        return self.primary_key_cols[0] if self.primary_key_cols else None
 
 
 def _reference_target(ref_node: exp.Reference) -> tuple[str, str]:
@@ -90,13 +95,8 @@ def _check_in_values(check: exp.CheckColumnConstraint) -> tuple[str, list] | Non
 
 
 def parse_schema(schema_sql: str, source_dialect: str) -> list[TableSpec]:
-    """Extract table/column/primary-key/foreign-key structure from CREATE TABLE
-    statements, in a best-effort dependency order (a table only depends on
-    tables earlier in the returned list) so seeding can respect foreign keys.
-
-    Supports single-column primary and foreign keys, inline or as table-level
-    constraints. Composite keys aren't specially handled -- only the first
-    column of a composite key is treated as "the" key for seeding purposes.
+    """Extract table/column/key structure from CREATE TABLE statements, in
+    dependency order so seeding can respect foreign keys.
     """
     specs: dict[str, TableSpec] = {}
     for stmt in _extract_create_table_asts(schema_sql, source_dialect):
@@ -115,14 +115,14 @@ def parse_schema(schema_sql: str, source_dialect: str) -> list[TableSpec]:
             for constraint in col.args.get("constraints") or []:
                 kind = constraint.kind
                 if isinstance(kind, exp.PrimaryKeyColumnConstraint):
-                    spec.primary_key = col_name
+                    spec.primary_key_cols = [col_name]
                 elif isinstance(kind, exp.Reference):
                     spec.foreign_keys[col_name] = _reference_target(kind)
 
         for pk in stmt.find_all(exp.PrimaryKey):
             cols = [c.name for c in pk.args.get("expressions", [])]
-            if cols and spec.primary_key is None:
-                spec.primary_key = cols[0]
+            if cols:
+                spec.primary_key_cols = cols  # table-level constraint is authoritative
 
         for fk in stmt.find_all(exp.ForeignKey):
             local_cols = [c.name for c in fk.args.get("expressions", [])]
@@ -173,10 +173,10 @@ def _render_sqlite_ddl(table: TableSpec) -> str:
         # needs to give SQLite a sane type affinity.
         return "TEXT" if col_type.upper().startswith("ENUM") else col_type
 
-    col_defs = [
-        f'"{name}" {_sqlite_type(col_type)}' + (" PRIMARY KEY" if name == table.primary_key else "")
-        for name, col_type in table.columns
-    ]
+    col_defs = [f'"{name}" {_sqlite_type(col_type)}' for name, col_type in table.columns]
+    if table.primary_key_cols:
+        pk_cols = ", ".join(f'"{c}"' for c in table.primary_key_cols)
+        col_defs.append(f"PRIMARY KEY ({pk_cols})")
     for local_col, (ref_table, ref_col) in table.foreign_keys.items():
         col_defs.append(f'FOREIGN KEY ("{local_col}") REFERENCES "{ref_table}" ("{ref_col}")')
     return f'CREATE TABLE "{table.name}" (\n  ' + ",\n  ".join(col_defs) + "\n);"
