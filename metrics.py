@@ -11,21 +11,18 @@ from sqlglot import exp as sqlglot_exp
 
 
 def extract_sql(text: str) -> str:
-    """Strip markdown fences / reasoning prose so scoring targets the SQL, not the wrapper.
-
-    Some models -- especially "thinking" or reasoning-tuned checkpoints --
-    answer with a step-by-step preamble before the SQL, even when instructed
-    to return only the query. This pulls the SQL out of that.
+    """Pull SQL from inside ``` fences (last one, if several), not just the
+    first non-empty chunk -- handles reasoning-before-SQL answers correctly.
     """
     text = text.strip()
     if "```" in text:
-        for part in text.split("```"):
-            part = part.strip()
-            if not part:
-                continue
-            if part.lower().startswith("sql"):
-                part = part[3:].strip()
-            return part
+        parts = text.split("```")
+        fenced = [p.strip() for p in parts[1::2] if p.strip()]
+        if fenced:
+            block = fenced[-1]
+            if block.lower().startswith("sql"):
+                block = block[3:].strip()
+            return block
     lowered = text.lower()
     for keyword in ("select", "with"):
         idx = lowered.find(keyword)
